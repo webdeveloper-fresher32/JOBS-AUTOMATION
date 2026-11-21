@@ -249,6 +249,13 @@ def run_parallel():
     print(f"Mode:                                             9 Platforms Running Concurrently")
     print("=" * 65 + "\n")
 
+    # Algorithmic Profile Activity Refresh (Naukri & LinkedIn on 1st run @ 8:30 AM and 3rd run @ 2:30 PM)
+    try:
+        import profile_activity_refresher
+        profile_activity_refresher.run_refresh_cycle()
+    except Exception as e:
+        print(f"  (Profile activity refresh note: {e})")
+
     tasks = [
         ("Hirist", [sys.executable, "hirist_apply.py"]),
         ("Naukri", [sys.executable, "naukri_apply.py"]),

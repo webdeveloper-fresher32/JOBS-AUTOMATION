@@ -54,7 +54,7 @@ if [ -f "$PROJECT_DIR/scripts/send_status_email.js" ]; then
     node "$PROJECT_DIR/scripts/send_status_email.js" --started >> "$LOG_FILE" 2>&1 || true
 fi
 
-# Run in hidden (headless) mode sequentially per user preference
+# Run in hidden (headless) mode with parallel workers for high performance (~15-20m per run)
 export BROWSER_MODE="headless"
 export PYTHONUNBUFFERED="1"
 
@@ -62,8 +62,8 @@ export PYTHONUNBUFFERED="1"
 echo "[$(date '+%Y-%m-%d %H:%M:%S')] Checking profile activity refresh for Naukri & LinkedIn..." >> "$LOG_FILE"
 "$PYTHON_BIN" profile_activity_refresher.py >> "$LOG_FILE" 2>&1 || true
 
-# Run the full multi-platform daily pipeline sequentially
-"$PYTHON_BIN" daily_pipeline.py --serial >> "$LOG_FILE" 2>&1
+# Run the full multi-platform daily pipeline in parallel
+"$PYTHON_BIN" daily_pipeline.py --parallel >> "$LOG_FILE" 2>&1
 EXIT_CODE=$?
 
 echo "" >> "$LOG_FILE"
