@@ -165,11 +165,26 @@ function getExternalJobs() {
   return jobs;
 }
 
+// Helper: Get power and battery percentage
+function getBatteryStatus() {
+  try {
+    const { execSync } = require('child_process');
+    const out = execSync('pmset -g batt', { encoding: 'utf-8', timeout: 3000 });
+    const isBatt = out.includes('Battery Power');
+    const m = out.match(/(\d+)%/);
+    const pct = m ? m[1] + '%' : 'OK';
+    return isBatt ? `🔋 Battery: ${pct}` : `⚡ AC Power: ${pct}`;
+  } catch (e) {
+    return '⚡ Power Connected';
+  }
+}
+
 // 4. Build 100% Mobile-Responsive HTML Email Template
 function generateHtmlReport(stats, externalJobs) {
   const now = new Date();
   const timeStr = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' });
   const dateStr = now.toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', timeZone: 'Asia/Kolkata' });
+  const powerStatus = getBatteryStatus();
 
   let alertsHtml = '';
   if (stats.alerts.length > 0) {
@@ -271,7 +286,7 @@ function generateHtmlReport(stats, externalJobs) {
         <div class="header-box" style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); padding: 22px 24px; color: #ffffff;">
           <div style="font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: #94a3b8; font-weight: 600;">Autonomous Jobs Pipeline</div>
           <h1 class="header-title" style="margin: 4px 0 0; font-size: 20px; font-weight: 700; color: #ffffff;">Status & Applications Report</h1>
-          <div style="margin-top: 4px; font-size: 12px; color: #cbd5e1;">Cycle completed at <strong>${timeStr} IST</strong> • ${dateStr}</div>
+          <div style="margin-top: 4px; font-size: 12px; color: #cbd5e1;">Cycle completed at <strong>${timeStr} IST</strong> • ${dateStr} • <strong>${powerStatus}</strong></div>
         </div>
 
         <div class="content-box" style="padding: 20px 24px;">
@@ -365,7 +380,7 @@ function generatePipelineStartedHtml(cycleName, nowStr) {
         <div class="header">
           <div class="badge">🚀 Execution Active</div>
           <h1 class="title">Jobs Automation Pipeline Started</h1>
-          <div class="subtitle">${cycleName} • ${nowStr}</div>
+          <div class="subtitle">${cycleName} • ${nowStr} • <strong>${getBatteryStatus()}</strong></div>
         </div>
         <div class="body">
           <div class="card" style="border-left: 4px solid #0284c7;">

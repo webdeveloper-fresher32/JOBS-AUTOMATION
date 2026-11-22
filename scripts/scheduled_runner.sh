@@ -48,6 +48,37 @@ if [ ! -f "$PYTHON_BIN" ]; then
     exit 1
 fi
 
+# Detect & log power state (Supports running on battery with lid closed)
+BATT_PCT=$(pmset -g batt 2>/dev/null | grep -E -o '[0-9]+%' | head -n 1)
+IS_BATT=$(pmset -g batt 2>/dev/null | grep -c "Battery Power")
+if [ "$IS_BATT" -gt 0 ]; then
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Power State: Running on BATTERY ($BATT_PCT)" >> "$LOG_FILE"
+else
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Power State: Connected to AC CHARGER ($BATT_PCT)" >> "$LOG_FILE"
+fi
+
+# Ensure Wi-Fi is powered ON & route is established (critical when waking on battery with lid closed)
+if command -v networksetup >/dev/null 2>&1; then
+    networksetup -setairportpower en0 on 2>/dev/null || true
+    CONNECTED=0
+    for i in {1..5}; do
+        if curl -s --max-time 3 -I https://api.resend.com >/dev/null 2>&1 || ping -c 1 -W 2 1.1.1.1 >/dev/null 2>&1; then
+            CONNECTED=1
+            echo "[$(date '+%Y-%m-%d %H:%M:%S')] Network connection verified and ready." >> "$LOG_FILE"
+            break
+        fi
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Waiting for Wi-Fi route ($i/5)..." >> "$LOG_FILE"
+        sleep 4
+    done
+    if [ $CONNECTED -eq 0 ]; then
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] Cycling Wi-Fi interface to re-establish route..." >> "$LOG_FILE"
+        networksetup -setairportpower en0 off 2>/dev/null
+        sleep 2
+        networksetup -setairportpower en0 on 2>/dev/null
+        sleep 4
+    fi
+fi
+
 # Send pipeline start notification email via Resend
 if [ -f "$PROJECT_DIR/scripts/send_status_email.js" ]; then
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] Sending pipeline start notification email via Resend..." >> "$LOG_FILE"
