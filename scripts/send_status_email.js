@@ -413,6 +413,36 @@ function generatePipelineStartedHtml(cycleName, nowStr) {
   `;
 }
 
+// Helper: Send email with automatic retries on network hiccups
+async function sendWithRetry(payload, maxRetries = 3) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${API_KEY}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (res.ok) {
+        return { ok: true, id: data.id };
+      } else {
+        console.error(`[!] Resend API response error (attempt ${attempt}/${maxRetries}):`, data);
+      }
+    } catch (err) {
+      console.error(`[!] Network error sending email (attempt ${attempt}/${maxRetries}):`, err.message);
+    }
+    if (attempt < maxRetries) {
+      const waitSec = attempt * 5;
+      console.log(`  ⏳ Waiting ${waitSec}s for network reconnection before retry...`);
+      await new Promise(r => setTimeout(r, waitSec * 1000));
+    }
+  }
+  return { ok: false };
+}
+
 // 5. Send Email via Resend API
 async function main() {
   const isStarted = process.argv.includes('--started');
@@ -442,29 +472,17 @@ async function main() {
     const htmlContent = generatePipelineStartedHtml(cycleName, nowStr);
     console.log(`[+] Sending pipeline start notification email to ${TO_EMAIL}...`);
 
-    try {
-      const res = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${API_KEY}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          from: 'Jobs Automation <onboarding@resend.dev>',
-          to: [TO_EMAIL],
-          subject: `🚀 [Started] Jobs Automation Pipeline Active — ${cycleName}`,
-          html: htmlContent
-        })
-      });
+    const result = await sendWithRetry({
+      from: 'Jobs Automation <onboarding@resend.dev>',
+      to: [TO_EMAIL],
+      subject: `🚀 [Started] Jobs Automation Pipeline Active — ${cycleName}`,
+      html: htmlContent
+    });
 
-      const data = await res.json();
-      if (res.ok) {
-        console.log(`[+] SUCCESS: Start notification email sent to ${TO_EMAIL}! Message ID: ${data.id}`);
-      } else {
-        console.error(`[!] Failed to send start email via Resend:`, data);
-      }
-    } catch (err) {
-      console.error(`[!] Network error sending start email:`, err.message);
+    if (result.ok) {
+      console.log(`[+] SUCCESS: Start notification email sent to ${TO_EMAIL}! Message ID: ${result.id}`);
+    } else {
+      console.error(`[!] Could not deliver start email after retries.`);
     }
     return;
   }
@@ -475,29 +493,17 @@ async function main() {
 
   console.log(`[+] Preparing responsive status update for: ${TO_EMAIL}...`);
 
-  try {
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${API_KEY}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        from: 'Jobs Automation <onboarding@resend.dev>',
-        to: [TO_EMAIL],
-        subject: `[Status] Jobs Automation Run Summary — ${stats.appliedToday} Applied Today`,
-        html: htmlContent
-      })
-    });
+  const result = await sendWithRetry({
+    from: 'Jobs Automation <onboarding@resend.dev>',
+    to: [TO_EMAIL],
+    subject: `[Status] Jobs Automation Run Summary — ${stats.appliedToday} Applied Today`,
+    html: htmlContent
+  });
 
-    const data = await res.json();
-    if (res.ok) {
-      console.log(`[+] SUCCESS: Mobile-responsive status email sent to ${TO_EMAIL}! Message ID: ${data.id}`);
-    } else {
-      console.error(`[!] Failed to send email via Resend:`, data);
-    }
-  } catch (err) {
-    console.error(`[!] Network error sending email:`, err.message);
+  if (result.ok) {
+    console.log(`[+] SUCCESS: Mobile-responsive status email sent to ${TO_EMAIL}! Message ID: ${result.id}`);
+  } else {
+    console.error(`[!] Could not deliver status email after retries.`);
   }
 }
 
