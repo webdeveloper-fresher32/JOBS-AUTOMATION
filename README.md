@@ -1,276 +1,158 @@
-# Multi-Platform Daily Job Application Pipeline
+# Multi-Platform Autonomous Job Application Pipeline
 
-An automated, intelligent daily job application pipeline that searches, matches, auto-fills screening questionnaires via AI, and applies across **Naukri**, **LinkedIn**, **Hirist**, **Foundit** (Monster), **Wellfound** (AngelList), **Glassdoor** (Indeed SmartApply), **Apna**, **Uplers**, and **Instahyre**.
+An enterprise-grade, intelligent daily job application pipeline that searches, filters, auto-fills screening questionnaires via AI, and submits applications across **Naukri**, **LinkedIn**, **Foundit** (Monster), **Instahyre**, **Hirist**, **Wellfound** (AngelList), **Uplers**, **Apna**, and **Glassdoor** (Indeed SmartApply).
 
-Designed to run **once every morning** as an autonomous daily workflow with persistent duplicate prevention and an actionable external application queue.
-
----
-
-## Key Features & Architecture
-
-```
-                                      DAILY MORNING RUN
-                                 (python daily_pipeline.py)
-                                              │
-                    ┌─────────────────────────┴─────────────────────────┐
-                    ▼                                                   ▼
-       applications_log.csv                                    external_jobs.csv
-    (Permanent Application History)                       (Today's Working Manual Queue)
-    • Never reset across days                             • Reset to 0 rows at start of every run
-    • Stores all successful submissions                   • Incrementally populated during run
-    • Blocks reapplying to same jobs                      • ONLY external ATS/careers links
-    • Tracks historical counts                            • No duplicates / No applied jobs
-```
-
-### 1. 9-in-1 Platform Support
-* **Naukri**: Searches fresh jobs, applies directly, handles multi-turn chatbot screening drawers, and extracts external links.
-* **LinkedIn**: Scans Easy Apply postings, navigates multi-step modals (`Contact Info` ➔ `Screening Questions` ➔ `Review` ➔ `Submit`), and collects external ATS openings.
-* **Glassdoor**: Automatically searches Glassdoor Easy Apply roles, seamlessly navigates the **Indeed SmartApply** multi-step engine (`resume-selection` ➔ `questions` ➔ `review` ➔ `submit`), auto-answers questions, and logs submissions.
-* **Apna**: Filters relevant jobs using UI sidebar controls (Date posted: Last 24h / 3 days, Work from home, Full-time, IT Department), evaluates experience/salary badges, auto-answers screening questions, and submits applications directly.
-* **Hirist.tech**: Evaluates fresh tech openings, navigates `/screening` questionnaires, auto-selects radio choices, and logs company careers links.
-* **Foundit (Monster)**: Searches targeted keyword/role queries, evaluates experience and freshness filters, handles Quick Apply / Apply Now modals, and logs external careers links.
-* **Wellfound (AngelList)**: Filters direct 1-click startup roles, evaluates match criteria, crafts tailored recruiter pitch notes via LLM, and submits applications directly.
-* **Uplers**: Evaluates opportunities in the talent dashboard, auto-fills application dialogs, and submits applications.
-* **Instahyre**: Searches matched tech roles & keywords on Instahyre candidate dashboard, auto-fills screening notes, and submits applications.
-
-### 2. AI Screening & Form Auto-Fill (`common/answers.py`)
-* **Direct Candidate Facts**: Instantly fills known values (Full Name, Notice Period, Current/Expected CTC, Total Experience, City, Relocation).
-* **Groq AI Dynamic Answers**: Powered by `qwen/qwen3.8-27b` via Groq to dynamically answer technical screening questions, role fit, and experience summaries.
-* **Learned Memory**: Caches responses locally in `common/learned_answers.py` for consistent, fast answering.
-* **Sensitive Field Protection**: Halts and prompts the terminal for sensitive PII (PAN, Aadhaar, Passport, Bank details).
-
-### 3. Isolated Persistent History vs. Daily Working CSV
-* **`applications_log.csv` (Permanent)**: Accumulates all successful submissions (`status == 'applied'`). Prevents reapplying to any job already applied on previous days.
-* **`external_jobs.csv` (Today's Queue)**: Automatically cleared to 0 rows at the start of every run. Only holds genuine external company ATS opportunities discovered during today's run.
+Designed to run **autonomously 3 times a day** (8:30 AM, 11:30 AM, 2:30 PM) via macOS `launchd`, fully resilient to running on **battery power with the laptop lid closed**, with persistent deduplication, anti-ban pacing, and responsive email status reports delivered to your inbox.
 
 ---
 
-## Repository Structure
+## Daily Schedule & Anti-Ban Architecture
+
+```text
+               macOS launchd Daemon (8:30 AM, 11:30 AM, 2:30 PM)
+                                     │
+                                     ▼
+                        scripts/scheduled_runner.sh
+  ├── Concurrency Lock (/tmp/jobs_automation_scheduled.lock)
+  ├── caffeinate -disu (Awake on battery/AC with lid closed)
+  ├── Wi-Fi Auto-Wake (networksetup -setairportpower en0 on) + route ping verification
+  ├── Start notification email sent via Resend API
+  ├── Profile Activity Refresher (8:30 AM & 2:30 PM: resets "Last Active" timestamp)
+  │
+  ▼
+daily_pipeline.py --parallel (9 Concurrent Headless Browser Workers)
+  ├── Naukri Worker     --> 17 applications/run (Protected: 50/day cap, <10 first then <100)
+  ├── LinkedIn Worker   --> 17 applications/run (Protected: 50/day cap, <10 first then <100, max 75 attempts)
+  ├── Foundit Worker    --> 35 applications/run (High-volume driver)
+  ├── Instahyre Worker  --> 30 applications/run (High-volume driver)
+  ├── Hirist Worker     --> 25 applications/run (Seniority 0–4 yrs)
+  ├── Wellfound Worker  --> 20 applications/run (Top 12 target roles)
+  ├── Uplers Worker     --> 20 applications/run (Full modal autofill + verified submit)
+  ├── Apna Worker       --> 15 applications/run
+  └── Glassdoor Worker  --> 3 applications/run (Restricted: 5/day cap)
+                                     │
+                                     ▼
+LinkedIn Recruiter Outreach (Sends 10 connection notes/day to hiring managers)
+                                     │
+                                     ▼
+Email Status Report dispatched to ganeshpirikirala@gmail.com (Resend API with battery telemetry)
+```
+
+---
+
+## Core Rules & Eligibility Standards
+
+### 1. Experience & Seniority Rules
+- **Candidate Total Experience**: Evaluated as **3 years**.
+- **Seniority Window**: `seniority_floor_years: 0` to `seniority_ceiling_years: 4` (Hard ceiling at 4 years).
+- **Preference Order**: Postings requiring **$\le$ 3 years** (0–2, 1–3, 2–3 yrs) are **strictly prioritized** over 4-year postings. Postings requiring 5+ years are automatically filtered out.
+
+### 2. Applicant Count Rules (Naukri & LinkedIn)
+- **Tier 1 (Priority 1 — Highest)**: Postings with **fewer than 10 applicants** (`< 10`) are evaluated and applied to first.
+- **Tier 2 (Priority 2 — Secondary)**: Postings with **fewer than 100 applicants** (`10 to 99`) are evaluated next.
+- **Tier 3 (Fallback)**: Postings with 100 to 500 applicants are evaluated only if needed to hit the run quota.
+- **Ceiling**: Any posting with **more than 500 applicants** is skipped (`too many applicants: > 500`).
+- **Freshness Window**: Postings within the last **7 days** (`job_freshness_days: 7`).
+
+### 3. Application Quotas & Pacing (Anti-Ban Architecture)
+To ensure your primary accounts on **Naukri** and **LinkedIn** are never restricted or banned:
+- **Paced Runs**: Capped at **17 applications per run** on Naukri and **17 applications per run** on LinkedIn.
+- **3-Cycle Distribution**: $17 \times 3 = 51 \approx \mathbf{50\text{ applications/day}}$ total per platform.
+- **Hard Daily Safety Ceiling**: Both platforms dynamically check `remaining_today = max(0, daily_ceiling - applied_today)`. Once 50 is reached, they safely pause for the day.
+- **Volume Drivers (Foundit, Instahyre, Hirist, Wellfound, Uplers, Apna)**: Configured with higher volume to ensure your total daily submissions reach **100 to 150 applications daily**.
+- **Glassdoor**: Restricted and capped at **3 per run (5 daily max)**.
+
+### 4. Company Blacklist
+The following companies are automatically excluded across all platforms via substring matching:
+- `Jobgether`
+- `Jobtogether`
+- `Tenacious HR Solutions`
+- `Tenacious HR Solution`
+
+### 5. Uplers Engine Rules
+- **Full Form Autofill**: Explicitly fills `current_location` ("Bengaluru"), `preferred_location` ("Bengaluru"), `joining_period` ("Immediately / 0–15 Days"), `preferred_modes` ("Remote"), `total_experience` months ("0"), and formatted joining date.
+- **Accurate Metadata Extraction**: Reads exact title and company from the right detail pane (`.jobDetailSection h1`), avoiding badge text strings (e.g. `"Within 3 days"`).
+- **Verified Confirmation**: Awaits modal dismissal or success toast before logging success, preventing unconfirmed applications.
+
+### 6. Hardware & Battery Resilience
+- **Lid-Closed Operation**: `caffeinate -disu` keeps macOS awake and running through battery cycles.
+- **Wi-Fi Route Restoration**: `scheduled_runner.sh` forces airport power on (`networksetup -setairportpower en0 on`) and verifies internet route before launching.
+- **Resend Email Reporting**: Uses exponential backoff (3 retry attempts) and embeds real-time battery status (`🔋 Battery: XX%` vs `⚡ AC Power`) into every status email sent to `ganeshpirikirala@gmail.com`.
+
+---
+
+## Platform Quota Overview
+
+| Platform | Per-Run Target | Daily Hard Cap | Strategy |
+| :--- | :---: | :---: | :--- |
+| **Naukri** | **17** | **50** | **Anti-Ban Protected** (17 per run $\times$ 3 runs = 50/day) |
+| **LinkedIn** | **17** | **50** | **Anti-Ban Protected** (17 per run $\times$ 3 runs = 50/day, max 75 attempts) |
+| **Foundit (Monster)** | **35** | **60** | **High Volume Driver** |
+| **Instahyre** | **30** | **50** | **High Volume Driver** |
+| **Hirist** | **25** | **50** | **High Volume Driver** (0–4 yrs) |
+| **Wellfound** | **20** | **35** | **Top 12 Target Roles Sweep** |
+| **Uplers** | **20** | **30** | **Direct Form Autofill** |
+| **Apna** | **15** | **25** | **Active Match Sweep** |
+| **Glassdoor** | **3** | **5** | **Restricted** (Low volume) |
+| **Total Daily Target** | — | **150 Jobs** | **Guarantees 100–150 applications/day** |
+
+---
+
+## File Structure
 
 ```text
 jobs-automation/
-├── naukri.py                     # Main CLI entry point (init, doctor, preview, apply, stats)
-├── daily_pipeline.py             # Orchestrates the autonomous morning multi-platform run
-├── run_all.py                    # Unified runner across all supported job portals
-├── login_capture.py              # Interactive session capture tool for saving session JSONs
+├── daily_pipeline.py             # Main orchestrator: runs all 9 platforms in parallel
+├── naukri.py                     # Unified CLI entry point
 │
-├── *_apply.py                    # Direct automation engines for individual platforms:
-│   ├── naukri_apply.py           # Naukri automation + chatbot drawer engine
-│   ├── hirist_apply.py           # Hirist automation + questionnaire multi-step engine
-│   ├── linkedin_apply.py         # LinkedIn Easy Apply engine
+├── *_apply.py                    # Direct automation engines:
+│   ├── naukri_apply.py           # Naukri engine (2-tier applicant sort, 17/run, 50/day cap)
+│   ├── linkedin_apply.py         # LinkedIn Easy Apply engine (2-tier sort, 17/run, max 75 attempts)
 │   ├── foundit_apply.py          # Foundit (Monster) automation engine
-│   ├── glassdoor_apply.py        # Glassdoor + Indeed SmartApply engine
-│   ├── apna_apply.py             # Apna automation engine
-│   ├── wellfound_apply.py        # Wellfound (AngelList) automation engine
 │   ├── instahyre_apply.py        # Instahyre automation engine
-│   └── uplers_apply.py           # Uplers automation engine
+│   ├── hirist_apply.py           # Hirist automation engine
+│   ├── wellfound_apply.py        # Wellfound startup engine
+│   ├── uplers_apply.py           # Uplers talent portal engine
+│   ├── apna_apply.py             # Apna automation engine
+│   └── glassdoor_apply.py        # Glassdoor + Indeed SmartApply engine
 │
-├── common/                       # Shared modules and AI intelligence
-│   ├── answers.py                # Core question routing, typed profile facts & screening answers
-│   ├── llm.py                    # Multi-provider LLM dispatcher (Groq, Ollama, Gemini)
-│   ├── groq_llm.py               # Ultra-fast screening answer generation via Groq Cloud
-│   ├── ollama_llm.py             # Completely local & private LLM screening generation
-│   ├── gemini.py                 # Gemini provider fallback
-│   ├── profile.py                # Profile loader and validator (profile.yaml)
-│   ├── learned_answers.py        # Local question-answer memory repository
-│   ├── resume_selector.py        # Targeted resume matcher & dynamic ATS generator
-│   ├── resume_generator.py       # On-the-fly tailored LaTeX/PDF resume generator
-│   ├── recruiter_connect.py      # Automated recruiter networking & personalized outreach
-│   ├── external_tracker.py       # Aggregator for external ATS/careers openings
-│   ├── stats_tracker.py          # Session statistics tracker
-│   └── stealth.py                # Anti-bot detection mitigation & human-like curves
+├── profile_activity_refresher.py # Algorithmic profile headline refresher for Naukri & LinkedIn
+├── linkedin_recruiter_outreach.py# Automated hiring manager connection request sender
 │
-├── resumes/                      # Role-targeted master PDF & LaTeX resumes
-│   └── generated/                # Job-tailored resumes generated dynamically on-the-fly
+├── common/
+│   ├── answers.py                # AI screening answer routing & typed profile facts
+│   ├── profile.py                # Profile loader and schema validator (profile.yaml)
+│   ├── external_tracker.py       # Tracks external ATS career portals (external_jobs.csv)
+│   ├── stats_tracker.py          # Real-time discovered/skipped/applied counter
+│   ├── stealth.py                # Anti-detection stealth launch & humanized delays
+│   └── resume_selector.py        # Selects or generates role-targeted LaTeX/PDF resumes
 │
-├── personal/                     # Personal portfolio, video scripts & private documentation (gitignored)
-│   ├── cognitivo_docs/           # Private project documentation & billing notes
-│   ├── tex_resumes/              # Private LaTeX resume templates
-│   ├── video_scripts/            # Product video & engineering walkthrough scripts
-│   └── ai_engineer_video_scripts/# AI engineering educational video scripts
+├── scripts/
+│   ├── scheduled_runner.sh       # Production runner with battery wake & caffeinate
+│   ├── send_status_email.js      # Resend API email reporter with retry & battery metrics
+│   └── com.ganesh.jobsautomation.plist # macOS launchd schedule definition
 │
-├── tests/                        # Comprehensive test suite (124 unit tests)
-├── docs/                         # Guides, user manual, and video scripts
-└── scripts/                      # Scheduled runners, launchd agents, packaging & guides
-    ├── scheduled_runner.sh       # Headless runner with concurrency locking & notifications
-    ├── install_schedule.sh       # One-click installer for macOS LaunchAgent (8:30 AM, 1:30 PM, 4:30 PM)
-    ├── uninstall_schedule.sh     # One-click uninstaller for LaunchAgent
-    ├── com.ganesh.jobsautomation.plist # LaunchAgent schedule definition template
-    ├── package_share.py          # Release packaging tool
-    └── build_pdf_guide.py        # PDF documentation builder
+├── applications_log.csv          # Permanent application database (4,100+ applied jobs)
+├── external_jobs.csv             # Daily queue of external company ATS links
+└── profile.yaml                  # Local configuration (gitignored, private)
 ```
 
 ---
 
-## Setup & Prerequisites
-
-### 1. Installation
+## Manual Execution & Testing
 
 ```bash
-# 1. Clone repository
-git clone git@github.com:ganesh-pkl/jobs-automation.git
-cd jobs-automation
+# Run unit tests (127 tests)
+./.venv/bin/python -m unittest discover -s tests -v
 
-# 2. Setup Python environment
-python3 -m venv .venv
-source .venv/bin/activate
+# Run the complete multi-platform pipeline in parallel
+./.venv/bin/python daily_pipeline.py --parallel
 
-# 3. Install dependencies & Chromium
-pip install -r requirements.txt
-playwright install chromium
+# Test individual platforms
+./.venv/bin/python naukri_apply.py
+./.venv/bin/python linkedin_apply.py
+./.venv/bin/python uplers_apply.py
+
+# Send status email manually
+node scripts/send_status_email.js
 ```
-
-### 2. Configure Credentials & Profile
-
-1. **Environment Variables (`.env`)**:
-   ```env
-   GROQ_API_KEY=your_groq_api_key_here
-   GROQ_MODEL=qwen/qwen-2.5-32b-instruct
-   ```
-
-2. **Candidate Profile (`profile.yaml`)**:
-   Edit `profile.yaml` with your actual professional facts, target roles, experience ceiling/floor, and job freshness window (e.g. `1` to `7` days).
-
-3. **Capture Platform Logins**:
-   Run login capture for the platforms you want to automate:
-   ```bash
-   python login_capture.py naukri
-   python login_capture.py linkedin
-   python login_capture.py hirist
-   python login_capture.py foundit
-   python login_capture.py wellfound
-   python login_capture.py glassdoor
-   python login_capture.py apna
-   python login_capture.py uplers
-   python login_capture.py instahyre
-   ```
-   Log into each platform in the opened browser, then press **Enter** in the terminal to save the session JSON.
-
----
-
-## Running the Automation
-
-### 1. Automated Background Scheduling (macOS `launchd` - Recommended)
-
-Run the full pipeline completely hands-free 3 times a day without opening a terminal:
-- **Morning Run**: `8:30 AM` (before 9:00 AM)
-- **Midday Run**: `1:30 PM` (before 2:00 PM)
-- **Afternoon Run**: `4:30 PM` (before 5:00 PM)
-
-```bash
-# 1. Install & activate the automated schedule
-./scripts/install_schedule.sh
-
-# 2. Monitor live execution logs in real time
-tail -f logs/scheduled_run.log
-
-# 3. Stop or uninstall the schedule at any time
-./scripts/uninstall_schedule.sh
-```
-
-**Key Features:**
-* **Headless Background Execution**: Automatically sets `BROWSER_MODE="headless"` so Chrome runs silently in memory without popping up windows or stealing keyboard focus.
-* **Concurrency Locking**: Utilizes `/tmp/jobs_automation_scheduled.lock` to prevent overlapping runs.
-* **Sleep / Clamshell Resilient**: If your Mac is asleep during a scheduled run, `launchd` automatically triggers the job the moment you open your laptop.
-* **Native Desktop Notifications**: Emits macOS notification chimes upon run completion.
-
----
-
-### 2. Manual Daily Run
-
-Run the full 9-platform pipeline every morning with a single command:
-
-```bash
-python daily_pipeline.py
-```
-*or*
-```bash
-python run_all.py
-```
-
-### 3. Running Individual Platforms
-
-You can also run any platform independently:
-
-```bash
-python apna_apply.py        # Run Apna automation
-python glassdoor_apply.py   # Run Glassdoor & Indeed SmartApply
-python wellfound_apply.py   # Run Wellfound automation
-python hirist_apply.py      # Run Hirist automation
-python naukri_apply.py      # Run Naukri automation
-python linkedin_apply.py    # Run LinkedIn Easy Apply
-python foundit_apply.py     # Run Foundit automation
-python uplers_apply.py      # Run Uplers automation
-python instahyre_apply.py   # Run Instahyre automation
-```
-
----
-
-## Daily Summary Report
-
-At the end of every morning run, the pipeline prints a complete summary:
-
-```text
-=================================================================
-Date: 2026-09-29
-
-Fresh jobs discovered: 95
-Previously applied jobs skipped: 18
-Duplicate jobs skipped: 7
-
-Naukri:
-  Applied: 18
-
-LinkedIn:
-  Applied: 8
-
-Hirist:
-  Applied: 12
-
-Foundit:
-  Applied: 10
-
-Wellfound:
-  Applied: 8
-
-Uplers:
-  Applied: 4
-
-Instahyre:
-  Applied: 6
-
-Total successful applications today: 66
-
-Total successful applications historically: 154
-
-New external/manual jobs added to CSV: 16
-
-Total external jobs currently in CSV: 16
-=================================================================
-
---- HIGH-MATCH EXTERNAL OPPORTUNITIES ADDED TODAY ---
-1. [LinkedIn] Senior Full Stack Developer @ Acme Corp (Hyderabad / Remote)
-   Skills: React.js, Node.js, REST APIs, System Design
-   Careers Link: https://boards.greenhouse.io/acmecorp/jobs/123456
-```
-
----
-
-## Testing & Verification
-
-Run the test suite to verify question answering, candidate fact extraction, and safety rules:
-
-```bash
-python -m unittest discover -s tests -v
-```
-
-Run browser smoke validation:
-```bash
-python naukri.py doctor --browser-smoke
-```
-
----
-
-## License
-
-MIT License.
