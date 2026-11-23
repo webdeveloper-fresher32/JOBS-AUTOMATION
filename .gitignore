@@ -33,3 +33,9 @@ dist/
 
 # Public guide only; personal resumes remain ignored
 !output/pdf/Naukri_Automation_Complete_Guide.pdf
+
+media
+
+# Video Studio & Generator assets
+video_studio/
+output/*.mp4
