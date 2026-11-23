@@ -2311,10 +2311,17 @@ def run(limit: int | None = None):
         raise SystemExit(f"{SESSION_FILE} not found. Run: python login_capture.py linkedin")
 
     applied_today = count_applications_today()
-    platform_threshold = int(profile.data.get("linkedin_limit", profile.data.get("linkedin_run_limit", profile.data.get("linkedin_daily_limit", 15))))
+    platform_threshold = int(profile.data.get("linkedin_limit", profile.data.get("linkedin_run_limit", 17)))
+    daily_ceiling = int(profile.data.get("linkedin_daily_limit", 50))
+    remaining_today = max(0, daily_ceiling - applied_today)
+
+    if remaining_today == 0:
+        print(f"LinkedIn daily limit reached ({applied_today}/{daily_ceiling} applied today). Stopping to protect account from restriction.")
+        return
+
     target_limit = limit if limit is not None else platform_threshold
-    run_success_limit = min(target_limit, int(profile.stop_after_n_applications or 100))
-    print(f"LinkedIn session starting (Platform threshold: {platform_threshold} | Applied today: {applied_today} | Target this run: {run_success_limit})")
+    run_success_limit = min(target_limit, remaining_today)
+    print(f"LinkedIn session starting (Per-run target: {run_success_limit} | Applied today: {applied_today}/{daily_ceiling})")
 
     is_remote_mode = (profile.work_mode in ("remote_only", "remote_first"))
     under_10_applicants = bool(profile.data.get("under_10_applicants_only", True))
@@ -2353,8 +2360,9 @@ def run(limit: int | None = None):
     freshness_seconds = int(profile.job_freshness_days) * 86400 if hasattr(profile, "job_freshness_days") else 604800
     max_search_pages = int(profile.data.get("max_linkedin_pages", 3))
 
+    pref_ea = "&f_EA=true" if under_10_applicants else ""
     search_targets = [
-        {"role": "Personalized Preferences Feed", "loc": "Worldwide", "url": "https://www.linkedin.com/jobs/search/?f_AL=true&f_EA=true&f_TPR=r86400&f_WT=2%2C3", "is_pref": True}
+        {"role": "Personalized Preferences Feed", "loc": "Worldwide", "url": f"https://www.linkedin.com/jobs/search/?f_AL=true{pref_ea}&f_TPR=r86400&f_WT=2%2C3", "is_pref": True}
     ]
     for role in profile.target_roles:
         for loc in locations:
@@ -2373,6 +2381,8 @@ def run(limit: int | None = None):
                 search_targets.append({"role": role, "loc": loc, "url": url, "is_pref": False, "page": page_idx + 1})
 
     applied = 0
+    attempted = 0
+    max_attempts = int(profile.data.get("stop_after_n_attempts", 75))
     with sync_playwright() as p:
         # Anti-detection stealth launch
         launch_kwargs = get_launch_kwargs(headless=profile.browser_mode == "headless", slow_mo=100)
@@ -2383,7 +2393,7 @@ def run(limit: int | None = None):
         page = context.new_page()
 
         for target in search_targets:
-            if applied >= run_success_limit:
+            if applied >= run_success_limit or attempted >= max_attempts:
                 break
 
             role = target["role"]
@@ -2612,10 +2622,26 @@ def run(limit: int | None = None):
             if len(cards) == 0:
                 continue
 
+            # 2-Tier Preference: 1st < 10 applicants, 2nd < 100 applicants, then remaining up to ceiling
+            def _card_applicant_priority(card):
+                app_text = (card.get("applicants") or "").lower()
+                nums = [int(s) for s in re.findall(r"\d+", app_text)]
+                if not nums:
+                    return 500  # Unknown count placed after <100 but before >500
+                cnt = nums[0]
+                if cnt < 10:
+                    return cnt          # Tier 1 (Priority 1): Under 10 applicants (0..9)
+                if cnt < 100:
+                    return 100 + cnt    # Tier 2 (Priority 2): 10 to 99 applicants (110..199)
+                return 1000 + cnt       # Tier 3: 100+ applicants (1100..1500)
+
+            cards.sort(key=_card_applicant_priority)
+
             applied_keys = load_applied_job_keys()
             for card in cards:
-                if applied >= run_success_limit:
+                if applied >= run_success_limit or attempted >= max_attempts:
                     break
+                attempted += 1
                 idx = card["idx"]
                 title = card.get("title", "")
                 company = card.get("company", "")

@@ -180,12 +180,16 @@ def count_applications_today(path: str = LOG_FILE, today=None) -> int:
         return 0
     count = 0
     try:
-        with log_path.open(newline="") as f:
+        with log_path.open(newline="", encoding="utf-8") as f:
             for row in csv.DictReader(f):
+                src = (row.get("source") or row.get("platform") or "").lower()
+                if src and src != "naukri":
+                    continue
                 if row.get("status") != "applied":
                     continue
                 try:
-                    if datetime.fromisoformat(row["timestamp"]).date() == target_date:
+                    ts_str = (row.get("timestamp") or "").replace(" ", "T")
+                    if datetime.fromisoformat(ts_str).date() == target_date:
                         count += 1
                 except (KeyError, TypeError, ValueError):
                     continue
@@ -1407,7 +1411,7 @@ def build_naukri_search_url(role: str, page_no: int, profile: Profile) -> str:
         ])
     else:
         allowed_locations = []
-        if profile.work_mode in ("hybrid", "any", "flexible"):
+        if profile.work_mode in ("hybrid", "any", "flexible", "remote_first", "remote_only"):
             allowed_locations.append("remote")
         if profile.current_city:
             allowed_locations.append(profile.current_city)
@@ -1441,15 +1445,22 @@ def run(preview: bool = False, limit: int | None = None):
     human_timeout = profile.data.get("human_input_timeout_seconds", 120)
     max_pages = profile.data.get("max_pages_per_role", 8)
     applied_today = count_applications_today()
-    platform_threshold = int(profile.data.get("naukri_limit", profile.data.get("naukri_run_limit", profile.data.get("naukri_daily_limit", 40))))
+    platform_threshold = int(profile.data.get("naukri_limit", profile.data.get("naukri_run_limit", 17)))
+    daily_ceiling = int(profile.data.get("naukri_daily_limit", 50))
+    remaining_today = max(0, daily_ceiling - applied_today) if not preview else platform_threshold
+
+    if not preview and remaining_today == 0:
+        print(f"Naukri daily limit reached ({applied_today}/{daily_ceiling} applied today). Stopping to protect account from suspension.")
+        return
+
     target_limit = limit if limit is not None else platform_threshold
-    run_success_limit = min(target_limit, int(profile.stop_after_n_applications or 100))
+    run_success_limit = min(target_limit, remaining_today)
     if preview:
         run_success_limit = target_limit
     max_attempts = profile.data.get(
         "stop_after_n_attempts", max(50, run_success_limit * 3)
     )
-    print(f"Naukri session starting (Platform threshold: {platform_threshold} | Applied today: {applied_today} | Target this run: {run_success_limit})")
+    print(f"Naukri session starting (Per-run target: {run_success_limit} | Applied today: {applied_today}/{daily_ceiling})")
 
     applied = 0
     attempted = 0
@@ -1498,6 +1509,20 @@ def run(preview: bool = False, limit: int | None = None):
 
                 cards = enumerate_cards(page)
                 new_cards = [c for c in cards if c.get("jobId") not in seen_job_ids]
+                # 2-Tier Preference: 1st < 10 applicants, 2nd < 100 applicants, then remaining up to ceiling
+                def _applicant_sort_key(c):
+                    txt = (c.get("applicants") or "").lower()
+                    nums = [int(s) for s in re.findall(r"\d+", txt)]
+                    if not nums:
+                        return 500  # Unknown count placed after <100 but before >500
+                    cnt = nums[0]
+                    if cnt < 10:
+                        return cnt          # Tier 1 (Priority 1): Under 10 applicants (0..9)
+                    if cnt < 100:
+                        return 100 + cnt    # Tier 2 (Priority 2): 10 to 99 applicants (110..199)
+                    return 1000 + cnt       # Tier 3: 100+ applicants (1100..1500)
+
+                new_cards.sort(key=_applicant_sort_key)
                 print(f"Found {len(cards)} job cards ({len(new_cards)} new) on page {page_no}.")
 
                 if not new_cards:

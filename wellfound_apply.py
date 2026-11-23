@@ -464,7 +464,7 @@ def run(role: str | None = None, limit: int | None = None, dry_run: bool = False
     print("=" * 65 + "\n")
 
     applied_keys = load_applied_job_keys()
-    roles_to_search = [role] if role else profile.target_roles[:5]
+    roles_to_search = [role] if role else profile.target_roles[:12]
     total_applied = 0
     total_attempts = 0
     max_attempts = int(profile.data.get("stop_after_n_attempts", 50))
