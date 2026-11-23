@@ -1509,18 +1509,22 @@ def run(preview: bool = False, limit: int | None = None):
 
                 cards = enumerate_cards(page)
                 new_cards = [c for c in cards if c.get("jobId") not in seen_job_ids]
-                # 2-Tier Preference: 1st < 10 applicants, 2nd < 100 applicants, then remaining up to ceiling
+                # 2-Tier Preference: 1st < 10 applicants, 2nd < 100 applicants, with <= 3 yrs experience preferred
                 def _applicant_sort_key(c):
                     txt = (c.get("applicants") or "").lower()
                     nums = [int(s) for s in re.findall(r"\d+", txt)]
-                    if not nums:
-                        return 500  # Unknown count placed after <100 but before >500
-                    cnt = nums[0]
+                    cnt = nums[0] if nums else 500
+
+                    # 3 yrs experience preferred over 4 yrs
+                    exp_txt = (c.get("exp") or "").lower()
+                    exp_nums = [int(s) for s in re.findall(r"\d+", exp_txt)]
+                    exp_penalty = 50 if exp_nums and exp_nums[0] > 3 else 0
+
                     if cnt < 10:
-                        return cnt          # Tier 1 (Priority 1): Under 10 applicants (0..9)
+                        return cnt + exp_penalty          # Tier 1 (Priority 1): Under 10 applicants
                     if cnt < 100:
-                        return 100 + cnt    # Tier 2 (Priority 2): 10 to 99 applicants (110..199)
-                    return 1000 + cnt       # Tier 3: 100+ applicants (1100..1500)
+                        return 100 + cnt + exp_penalty    # Tier 2 (Priority 2): 10 to 99 applicants
+                    return 1000 + cnt + exp_penalty       # Tier 3: 100+ applicants
 
                 new_cards.sort(key=_applicant_sort_key)
                 print(f"Found {len(cards)} job cards ({len(new_cards)} new) on page {page_no}.")

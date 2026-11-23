@@ -117,23 +117,66 @@ def fill_uplers_modal(page, profile: Profile, job_title: str, company: str = "")
         e_ctc = str(profile.expected_ctc_lpa) if profile.expected_ctc_lpa is not None else "10"
         exp_ctc_input.first.fill(e_ctc)
 
-    # 3. Date input (Earliest joining date / Last working day for immediate joiner)
+    # 2b. Location fields (React-Select dropdowns)
+    try:
+        curr_loc = modal.locator("#current_location")
+        if curr_loc.is_visible() and not curr_loc.input_value():
+            city = profile.current_city or "Bengaluru"
+            curr_loc.click()
+            curr_loc.fill(city)
+            time.sleep(0.5)
+            page.keyboard.press("Enter")
+            print(f"  Auto-selected current location: {city}")
+    except Exception:
+        pass
+
+    try:
+        pref_loc = modal.locator("#preferred_location")
+        if pref_loc.is_visible() and not pref_loc.input_value():
+            city = profile.current_city or "Bengaluru"
+            pref_loc.click()
+            pref_loc.fill(city)
+            time.sleep(0.5)
+            page.keyboard.press("Enter")
+            print(f"  Auto-selected preferred location: {city}")
+    except Exception:
+        pass
+
+    # 2c. Joining period (Notice period)
+    try:
+        join_inp = modal.locator("#joining_period").locator("..")
+        if join_inp.is_visible():
+            join_inp.click()
+            time.sleep(0.5)
+            page.keyboard.press("ArrowDown")
+            page.keyboard.press("Enter")
+            print("  Auto-selected joining period")
+    except Exception:
+        pass
+
+    # 2d. Preferred modes (Remote / Hybrid)
+    try:
+        modes = modal.locator("#preferred_modes")
+        if modes.is_visible() and not modes.input_value():
+            modes.click()
+            modes.fill("Remote")
+            time.sleep(0.5)
+            page.keyboard.press("Enter")
+            print("  Auto-selected preferred mode: Remote")
+    except Exception:
+        pass
+
+    # 3. Date input (Earliest joining date)
     future_date = (datetime.now() + timedelta(days=2)).strftime("%d/%m/%Y")
-    date_inputs = modal.locator(
-        ".date-input, input[placeholder*='Ex: '], input[placeholder*='/'], input[class*='date']"
-    )
-    for i in range(date_inputs.count()):
-        d_inp = date_inputs.nth(i)
-        if d_inp.is_visible():
-            try:
-                d_inp.click()
-                d_inp.fill(future_date)
-                d_inp.dispatch_event("input")
-                d_inp.dispatch_event("change")
-                page.keyboard.press("Escape")
-                print(f"  Auto-filled earliest joining date: {future_date}")
-            except Exception:
-                pass
+    date_input = modal.locator("input.date-input, input[placeholder*='/202'], input[placeholder*='DD/MM']").first
+    if date_input.count() > 0 and date_input.is_visible():
+        try:
+            date_input.click()
+            date_input.fill(future_date)
+            page.keyboard.press("Enter")
+            print(f"  Auto-filled earliest joining date: {future_date}")
+        except Exception:
+            pass
 
     # 4. Shift availability radio buttons ("Are you open to work in ... shift?")
     shift_yes = modal.locator(
@@ -179,18 +222,26 @@ def fill_uplers_modal(page, profile: Profile, job_title: str, company: str = "")
 
     # 6. Click Submit (Input submit or Button)
     submit_btn = modal.locator(
-        "input[type='submit'][value*='Apply'], input.primaryBtn.cta, button:has-text('APPLY NOW'), button:has-text('Apply Now'), button[type='submit']"
+        "input[type='submit'][value*='Apply'], input.primaryBtn.cta, button[type='submit']"
     ).first
     if submit_btn.is_visible():
         print("  Clicking Submit (Apply Now)...")
         submit_btn.click()
-        time.sleep(3)
-        page.keyboard.press("Escape")
-        time.sleep(0.5)
-        close_btn = modal.locator(".modalCloseBtn, button[aria-label*='Close'], button[aria-label*='close']").first
-        if close_btn.is_visible():
-            close_btn.click()
-        return True
+        time.sleep(4)
+
+        # Verify submission: wait for modal to disappear or success message
+        try:
+            modal.wait_for(state="hidden", timeout=8000)
+            return True
+        except Exception:
+            success_indicators = page.locator(".toast, .alert, [class*='success'], [class*='applied']")
+            if success_indicators.count() > 0:
+                return True
+            print("  [!] Uplers modal remained open after clicking submit (likely validation error).")
+            close_btn = modal.locator(".modalCloseBtn, button[aria-label*='Close'], button[aria-label*='close']").first
+            if close_btn.is_visible():
+                close_btn.click()
+            return False
     return False
 
 
@@ -294,34 +345,47 @@ def run(limit: int | None = None):
                 time.sleep(2)
             except Exception:
                 continue
-                
+
+            pane_title = page.locator(".jobDetailSection h1, .jobDetailSection h2, .jobDetailSection .title, [class*='jobDetail'] h1, [class*='jobDetail'] h2").first
+            pane_company = page.locator(".jobDetailSection .companyName, .jobDetailSection [class*='company'], [class*='jobDetail'] [class*='company']").first
+
+            card_title = pane_title.inner_text().strip() if pane_title.count() > 0 and pane_title.is_visible() else ""
+            card_company = pane_company.inner_text().strip() if pane_company.count() > 0 and pane_company.is_visible() else ""
+
+            if not card_title:
+                title_el = card.locator("h3, h4, .jobTitle, .title, a[class*='title'], [class*='job-title']").first
+                card_title = title_el.inner_text().strip() if title_el.count() > 0 else (lines[0] if lines else "Uplers Opportunity")
+            if not card_company:
+                card_company = lines[1] if len(lines) > 1 else "Uplers"
+
             # Check for Apply button in right pane
             apply_btn = page.locator(".jobDetailSection button:has-text('Apply'), .jobDetailSection button:has-text('Apply Now'), button.applyBtn").filter(has_text=re.compile(r"^Apply( Now)?$", re.I))
-            
+
             if apply_btn.count() == 0:
                 apply_btn = page.locator("button:has-text('Apply'), button:has-text('Apply Now'), button.applyBtn").filter(has_text=re.compile(r"^Apply( Now)?$", re.I))
-            
+
             visible_btn = None
             for i in range(apply_btn.count()):
                 if apply_btn.nth(i).is_visible():
                     visible_btn = apply_btn.nth(i)
                     break
-            
+
             if visible_btn:
-                print("  Found Apply button! Clicking...")
+                print(f"  Found Apply button for '{card_title}'! Clicking...")
                 try:
                     visible_btn.click(timeout=5000)
                     time.sleep(2)
-                    
-                    fill_uplers_modal(page, profile, card_title, company=card_company)
-                        
-                    # Log success
-                    applied += 1
-                    applied_keys.add(_job_key(card_title, card_company))
-                    log_row([datetime.now().isoformat(), "uplers", card_title, card_company, "applied", "success"])
-                    print(f"Applied: {card_title} @ {card_company} ({applied} total this run)")
-                    time.sleep(profile.min_delay_seconds_between_applications)
-                    
+
+                    submitted = fill_uplers_modal(page, profile, card_title, company=card_company)
+                    if submitted:
+                        applied += 1
+                        applied_keys.add(_job_key(card_title, card_company))
+                        log_row([datetime.now().isoformat(), "uplers", card_title, card_company, "applied", "success"])
+                        print(f"  ✅ Applied: {card_title} @ {card_company} ({applied} total this run)")
+                        time.sleep(profile.min_delay_seconds_between_applications)
+                    else:
+                        print(f"  ❌ Application submission not confirmed for {card_title} @ {card_company}")
+
                 except Exception as e:
                     print(f"  Error clicking apply: {e}")
             else:
