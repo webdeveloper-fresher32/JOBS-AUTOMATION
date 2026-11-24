@@ -118,6 +118,15 @@ PROJECT_KEYWORDS = {
         "screen time", "productivity", "offline-first", "mobile", "stateflow",
         "coroutines", "material 3", "mvvm"
     ],
+    "High-Concurrency Distributed Backend": [
+        "concurrency", "high concurrency", "redis", "mongodb", "cluster", "clustering",
+        "scaling", "k6", "load testing", "throughput", "rps", "low latency", "socket",
+        "ulimit", "somaxconn", "cache", "caching", "two-tier", "distributed"
+    ],
+    "DocsRAG": [
+        "rag", "qdrant", "spring ai", "ollama", "spring boot", "mcp", "model context protocol",
+        "pdfbox", "embeddings", "vector", "vector db", "semantic search", "llama"
+    ],
 }
 
 # Standalone project LaTeX blocks available for dynamic substitution
@@ -128,7 +137,22 @@ PROJECT_LATEX_TEMPLATES = {
         r"    \item Engineered an offline-first Android productivity application in \textbf{Kotlin, Jetpack Compose (Material 3), and Clean Architecture/MVVM}, actively intercepting unauthorized app launches via an Android \textbf{AccessibilityService} and full-screen blocking overlay." "\n"
         r"    \item Implemented persistent target-epoch session timers and deflection analytics backed by \textbf{Room SQLite} and \textbf{UsageStatsManager}, surviving process termination, aggressive OS background killers, and device reboots (\textbf{BOOT\_COMPLETED})." "\n"
         r"\end{itemize}"
-    )
+    ),
+    "High-Concurrency Distributed Backend": (
+        r"\noindent \textbf{High-Concurrency Distributed Backend --- Node.js, Redis, MongoDB} \hfill \href{https://github.com/webdeveloper-fresher32/high-concurrency-nodejs-backend}{\raisebox{-0.05\height}\faGithub\ Code}" "\n"
+        r"\begin{itemize}" "\n"
+        r"    \item Engineered an empirical benchmark scaling Node.js from a single-core bottleneck to \textbf{20,000 concurrent Virtual Users (VUs)} sustaining \textbf{7,319.07 RPS}, \textbf{0.00\% error rate}, and \textbf{1.42ms p(95) tail latency} across 2.87M requests on a single host." "\n"
+        r"    \item Designed a \textbf{Two-Tier Cache Architecture}: L1 In-Process V8 Heap Cache (5-second micro-TTL, 98\% hit rate at 1 microsecond zero-network latency) and L2 Shared Redis Cache with distributed mutex locks (\textbf{SETNX} + atomic Lua scripts) to eliminate cache stampedes." "\n"
+        r"    \item Tuned macOS/Linux OS kernel sockets (\textbf{somaxconn: 4096}, \textbf{ulimit: 65536}) and clustered worker processes with round-robin socket balancing and dual-layer covered compound MongoDB indexing, eliminating \textbf{COLLSCAN} bottlenecks." "\n"
+        r"\end{itemize}"
+    ),
+    "DocsRAG": (
+        r"\noindent \textbf{DocsRAG --- Local AI Knowledge Assistant \& MCP Platform} \hfill \href{https://github.com/webdeveloper-fresher32/AI-PDF-Knowledge-Assistant}{\raisebox{-0.05\height}\faGithub\ Code}" "\n"
+        r"\begin{itemize}" "\n"
+        r"    \item Built a private, local RAG document intelligence platform using \textbf{Java 21, Spring Boot 4.1.1, Spring AI 2.0.1, and Qdrant Vector DB}, extracting text via Apache PDFBox and generating 768-dimensional embeddings offline using \textbf{Ollama} (\textbf{nomic-embed-text})." "\n"
+        r"    \item Engineered token-streaming question answering with \textbf{Server-Sent Events (SSE)} and integrated 3 \textbf{Model Context Protocol (MCP)} tools (Calculator, Filesystem Inspector, Weather) for dynamic tool-calling with context citations in a \textbf{Next.js 16} UI." "\n"
+        r"\end{itemize}"
+    ),
 }
 
 
