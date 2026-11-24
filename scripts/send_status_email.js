@@ -458,11 +458,50 @@ async function sendWithRetry(payload, maxRetries = 3) {
   return { ok: false };
 }
 
-// 5. Send Email via Resend API
+// 5. Deduplication and Debounce Locks
+const STARTED_LOCK_FILE = '/tmp/jobs_resend_started.timestamp';
+const SUMMARY_LOCK_FILE = '/tmp/jobs_resend_summary.timestamp';
+
+function isDuplicateRun(lockPath, cooldownSeconds) {
+  try {
+    if (fs.existsSync(lockPath)) {
+      const content = fs.readFileSync(lockPath, 'utf-8').trim();
+      const lastTime = parseInt(content, 10);
+      const now = Math.floor(Date.now() / 1000);
+      if (!isNaN(lastTime)) {
+        const elapsed = now - lastTime;
+        if (elapsed < cooldownSeconds) {
+          return { duplicate: true, elapsed };
+        }
+      }
+    }
+  } catch (err) {
+    // If error checking lock, proceed
+  }
+  return { duplicate: false, elapsed: 0 };
+}
+
+function updateLock(lockPath) {
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    fs.writeFileSync(lockPath, String(now), 'utf-8');
+  } catch (err) {
+    // ignore
+  }
+}
+
+// 6. Send Email via Resend API
 async function main() {
   const isStarted = process.argv.includes('--started');
 
   if (isStarted) {
+    // Debounce start notification (15 minutes cooldown to prevent duplicates)
+    const check = isDuplicateRun(STARTED_LOCK_FILE, 900);
+    if (check.duplicate) {
+      console.log(`[i] Start notification email was already sent ${check.elapsed}s ago (cooldown: 900s). Skipping duplicate.`);
+      return;
+    }
+
     const now = new Date();
     const hour = now.getHours();
     let cycleName = 'Early Outreach Cycle';
@@ -495,10 +534,18 @@ async function main() {
     });
 
     if (result.ok) {
+      updateLock(STARTED_LOCK_FILE);
       console.log(`[+] SUCCESS: Start notification email sent to ${TO_EMAIL}! Message ID: ${result.id}`);
     } else {
       console.error(`[!] Could not deliver start email after retries.`);
     }
+    return;
+  }
+
+  // Debounce status summary report (10 minutes cooldown to prevent duplicates)
+  const checkSummary = isDuplicateRun(SUMMARY_LOCK_FILE, 600);
+  if (checkSummary.duplicate) {
+    console.log(`[i] Status report email was already sent ${checkSummary.elapsed}s ago (cooldown: 600s). Skipping duplicate.`);
     return;
   }
 
@@ -516,6 +563,7 @@ async function main() {
   });
 
   if (result.ok) {
+    updateLock(SUMMARY_LOCK_FILE);
     console.log(`[+] SUCCESS: Mobile-responsive status email sent to ${TO_EMAIL}! Message ID: ${result.id}`);
   } else {
     console.error(`[!] Could not deliver status email after retries.`);

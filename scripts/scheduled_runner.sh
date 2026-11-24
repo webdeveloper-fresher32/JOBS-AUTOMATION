@@ -79,12 +79,6 @@ if command -v networksetup >/dev/null 2>&1; then
     fi
 fi
 
-# Send pipeline start notification email via Resend
-if [ -f "$PROJECT_DIR/scripts/send_status_email.js" ]; then
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Sending pipeline start notification email via Resend..." >> "$LOG_FILE"
-    node "$PROJECT_DIR/scripts/send_status_email.js" --started >> "$LOG_FILE" 2>&1 || true
-fi
-
 # Run in hidden (headless) mode with parallel workers for high performance (~15-20m per run)
 export BROWSER_MODE="headless"
 export PYTHONUNBUFFERED="1"
@@ -106,12 +100,6 @@ if [ $EXIT_CODE -eq 0 ]; then
     osascript -e 'display notification "Job pipeline completed successfully." with title "Jobs Automation" sound name "Glass"' 2>/dev/null || true
 else
     osascript -e 'display notification "Job pipeline finished with notes. Check logs." with title "Jobs Automation" sound name "Basso"' 2>/dev/null || true
-fi
-
-# Send automated email status report via Resend API
-if [ -f "$PROJECT_DIR/scripts/send_status_email.js" ]; then
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Sending email status report via Resend..." >> "$LOG_FILE"
-    node "$PROJECT_DIR/scripts/send_status_email.js" >> "$LOG_FILE" 2>&1 || true
 fi
 
 exit $EXIT_CODE
